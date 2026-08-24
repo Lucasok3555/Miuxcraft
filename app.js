@@ -16,21 +16,50 @@ const BLOCKS = [
   { id: 'coal', name: 'Carvao', color: 0x2d2d2d },
   { id: 'gravel', name: 'Cascalho', color: 0x8a8175 },
   { id: 'dirt', name: 'Terra', color: 0x7f5938 },
-  { id: 'glass', name: 'Vidro', color: 0xbfe6f2, transparent: true, opacity: 0.35 }
+  { id: 'glass', name: 'Vidro', color: 0xbfe6f2, transparent: true, opacity: 0.35 },
+  { id: 'torch', name: 'Tocha', color: 0xffaa00, emissive: 0xff8800 },
+  { id: 'pickaxe', name: 'Picareta', color: 0x555555 },
+  { id: 'axe', name: 'Machado', color: 0x8B4513 },
+  { id: 'shovel', name: 'Pá', color: 0x654321 },
+  { id: 'door', name: 'Porta', color: 0x8B4513 },
+  { id: 'stick', name: 'Graveto', color: 0xA0522D },
+  { id: 'light_block', name: 'Bloco de Luz', color: 0xffffaa, emissive: 0xffffaa },
+  { id: 'wooden_stairs', name: 'Escada Madeira', color: 0x8B5A2B },
+  { id: 'ice', name: 'Gelo', color: 0xaaddff, transparent: true, opacity: 0.6 },
+  { id: 'snow', name: 'Neve', color: 0xffffff },
+  { id: 'cactus', name: 'Cacto', color: 0x2d6e32 }
 ];
 
-const HOTBAR_IDS = ['grass', 'stone', 'wood', 'sand', 'glass', 'water', 'brick', 'lava'];
+const HOTBAR_IDS = ['grass', 'stone', 'wood', 'sand', 'glass', 'water', 'brick', 'lava', 'torch', 'pickaxe', 'axe', 'shovel', 'door', 'stick', 'light_block', 'wooden_stairs', 'ice', 'snow', 'cactus'];
 const WORLD_SIZE = 28;
 const WATER_LEVEL = 4;
 const PLAYER_HEIGHT = 1.8;
 const BLOCK_SIZE = 1;
 const STORAGE_KEY = 'voxel-sandbox-worlds-v1';
+const DAY_SPEED = 0.005; // Reduzido para deixar mais devagar
+const NIGHT_TIME_START = 0.65; // Ajustado para noite chegar mais cedo
+const OXYGEN_MAX = 100;
+const OXYGEN_DEPLETION_RATE = 15; // Por segundo debaixo d'água
+const OXYGEN_DAMAGE_INTERVAL = 2; // Dano a cada 2 segundos sem oxigênio
+
+// Estado do modo online
+let onlineMode = false;
+let localPlayerName = '';
+let onlinePlayers = [];
+let worldNameEditable = false;
+
+// Modo de jogo
+let gameMode = 'creative'; // 'creative' ou 'survival'
+let playerHealth = 100;
+let playerOxygen = OXYGEN_MAX;
+let lastOxygenDamageTime = 0;
 
 const menuScreen = document.getElementById('menu-screen');
 const gameScreen = document.getElementById('game-screen');
 const worldNameInput = document.getElementById('world-name-input');
 const createWorldBtn = document.getElementById('create-world-btn');
 const exportWorldBtn = document.getElementById('export-world-btn');
+const onlineModeBtn = document.getElementById('online-mode-btn');
 const worldList = document.getElementById('world-list');
 const worldStatus = document.getElementById('world-status');
 const selectedBlockLabel = document.getElementById('selected-block-label');
@@ -46,6 +75,22 @@ const jumpBtn = document.getElementById('jump-btn');
 const breakBtn = document.getElementById('break-btn');
 const placeBtn = document.getElementById('place-btn');
 const canvas = document.getElementById('game-canvas');
+const chatBtn = document.getElementById('chat-btn');
+const chatContainer = document.getElementById('chat-container');
+const chatMessages = document.getElementById('chat-messages');
+const chatInput = document.getElementById('chat-input');
+const oxygenBar = document.getElementById('oxygen-bar');
+const oxygenFill = document.getElementById('oxygen-fill');
+const currentWorldNameEl = document.getElementById('current-world-name');
+const editWorldNameBtn = document.getElementById('edit-world-name-btn');
+const editWorldModal = document.getElementById('edit-world-modal');
+const editWorldNameInput = document.getElementById('edit-world-name');
+const saveEditBtn = document.getElementById('save-edit-btn');
+const closeEditModalBtn = document.getElementById('close-edit-modal-btn');
+const settingsModal = document.getElementById('settings-modal');
+const closeModalBtn = document.getElementById('close-modal-btn');
+const survivalModeBtn = document.getElementById('survival-mode-btn');
+const creativeModeBtn = document.getElementById('creative-mode-btn');
 
 const isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
 const scene = new THREE.Scene();
@@ -149,9 +194,37 @@ function stringSeed(text) {
 }
 
 function terrainHeight(x, z, rand) {
+  // Adicionar variação baseada em biomas
   const ridge = Math.sin((x + rand * 11) * 0.35) + Math.cos((z - rand * 7) * 0.31);
   const hills = Math.sin((x + z) * 0.16) * 1.6 + Math.cos((x - z) * 0.21) * 1.2;
-  return Math.max(3, Math.min(10, Math.floor(5 + ridge * 0.8 + hills * 0.6)));
+  
+  // Determinar bioma baseado na posição
+  const biomeNoise = Math.sin(x * 0.08 + rand * 5) * Math.cos(z * 0.08 - rand * 3);
+  
+  let height = Math.floor(5 + ridge * 0.8 + hills * 0.6);
+  
+  // Ajustar altura baseada no bioma
+  if (biomeNoise > 0.6) {
+    // Montanhas
+    height += 4;
+  } else if (biomeNoise < -0.4) {
+    // Desertos/Planícies
+    height = Math.max(3, height - 1);
+  }
+  
+  return Math.max(3, Math.min(14, height));
+}
+
+function getBiomeType(x, z, seed) {
+  const biomeNoise = Math.sin(x * 0.08 + seed * 5) * Math.cos(z * 0.08 - seed * 3);
+  const tempNoise = Math.sin(x * 0.05 + z * 0.05 + seed) * 0.5 + 0.5;
+  
+  if (biomeNoise > 0.6) return 'mountains';
+  if (tempNoise < 0.2) return 'ice';
+  if (tempNoise > 0.7 && biomeNoise < -0.2) return 'desert';
+  if (tempNoise > 0.5 && biomeNoise < 0.2) return 'savanna';
+  if (biomeNoise < -0.4) return 'plains';
+  return 'forest';
 }
 
 function blockDef(id) {
@@ -208,24 +281,50 @@ function generateWorldData(name) {
       const riverNoise = Math.sin((x + seed) * 0.12) + Math.cos((z - seed) * 0.14);
       const lakeNoise = Math.sin((x * z + seed) * 0.035);
       const hasWater = riverNoise > 1.3 || lakeNoise > 0.93;
+      
+      // Determinar bioma para esta posição
+      const biome = getBiomeType(x, z, seed);
+      
       for (let y = 0; y <= h; y += 1) {
         let type = 'stone';
         if (y === h) {
-          type = h <= WATER_LEVEL + 1 ? 'sand' : 'grass';
+          // Tipo de bloco superficial baseado no bioma
+          if (biome === 'desert') {
+            type = 'sand';
+          } else if (biome === 'ice') {
+            type = y === h && hasWater ? 'ice' : 'snow';
+          } else if (biome === 'savanna') {
+            type = 'grass';
+          } else if (h <= WATER_LEVEL + 1) {
+            type = 'sand';
+          } else {
+            type = 'grass';
+          }
         } else if (y >= h - 2) {
-          type = 'dirt';
+          type = biome === 'desert' ? 'sand' : 'dirt';
         }
         addBlock(x, y, z, type);
       }
 
+      // Adicionar água/lava
       if (hasWater && h <= WATER_LEVEL + 2) {
         for (let y = h + 1; y <= WATER_LEVEL; y += 1) {
           addBlock(x, y, z, 'water');
         }
       }
 
-      if (!hasWater && h > WATER_LEVEL + 1 && rand() > 0.92) {
-        generateTree(x, h + 1, z, addBlock, rand);
+      // Gerar árvores e vegetação baseada no bioma
+      if (!hasWater && h > WATER_LEVEL + 1) {
+        const treeChance = biome === 'forest' ? 0.92 : biome === 'savanna' ? 0.88 : 0.95;
+        if (rand() > treeChance) {
+          generateTree(x, h + 1, z, addBlock, rand, biome);
+        }
+      }
+      
+      // Ilhas desertas
+      if (biome === 'desert' && !hasWater && h > WATER_LEVEL + 2 && rand() > 0.97) {
+        // Cacto ou vegetação do deserto
+        addBlock(x, h + 1, z, 'cactus');
       }
     }
   }
@@ -364,10 +463,26 @@ function enterWorld(worldId) {
   gameScreen.classList.add('active');
   pausePanel.classList.add('hidden');
   inventoryPanel.classList.add('hidden');
+  
+  // Exibir nome do mundo
+  if (currentWorldNameEl) {
+    currentWorldNameEl.textContent = world.name;
+  }
+  
+  // Mensagem de entrada no mundo
+  if (onlineMode && localPlayerName) {
+    addChatMessage('Sistema', `${localPlayerName} entrou no mundo!`, 'system');
+  }
 }
 
 function exitToMenu() {
   saveCurrentWorld();
+  
+  // Mensagem de saída do mundo
+  if (onlineMode && localPlayerName) {
+    addChatMessage('Sistema', `${localPlayerName} saiu do mundo.`, 'system');
+  }
+  
   gameScreen.classList.remove('active');
   menuScreen.classList.add('active');
   controlState.pointerLocked = false;
@@ -493,6 +608,9 @@ function updatePlayer(delta) {
     player.velocity.set(0, 0, 0);
   }
 
+  // Atualizar oxigênio quando debaixo d'água
+  updateOxygen(delta, next);
+
   player.position.copy(next);
   player.yaw -= controlState.lookDX * 0.0022;
   player.pitch -= controlState.lookDY * 0.0022;
@@ -502,8 +620,44 @@ function updatePlayer(delta) {
   updateCamera();
 }
 
+function updateOxygen(delta, position) {
+  const waterLevel = WATER_LEVEL;
+  const isUnderwater = position.y < waterLevel + 1;
+  
+  if (isUnderwater) {
+    oxygenBar.classList.remove('hidden');
+    playerOxygen = Math.max(0, playerOxygen - OXYGEN_DEPLETION_RATE * delta);
+    oxygenFill.style.width = `${(playerOxygen / OXYGEN_MAX) * 100}%`;
+    
+    if (playerOxygen <= 0) {
+      oxygenBar.classList.add('low-oxygen');
+      const now = Date.now() / 1000;
+      if (now - lastOxygenDamageTime >= OXYGEN_DAMAGE_INTERVAL && gameMode === 'survival') {
+        playerHealth = Math.max(0, playerHealth - 10);
+        lastOxygenDamageTime = now;
+        addChatMessage('Sistema', 'Você está sem oxigênio! Saia da água!', 'system');
+      }
+    } else {
+      oxygenBar.classList.remove('low-oxygen');
+    }
+  } else {
+    oxygenBar.classList.add('hidden');
+    playerOxygen = OXYGEN_MAX;
+    oxygenFill.style.width = '100%';
+    oxygenBar.classList.remove('low-oxygen');
+  }
+  
+  if (playerHealth <= 0 && gameMode === 'survival') {
+    // Jogador morreu - respawn
+    player.position.set(WORLD_SIZE / 2, 10, WORLD_SIZE / 2);
+    playerHealth = 100;
+    playerOxygen = OXYGEN_MAX;
+    addChatMessage('Sistema', 'Você morreu e renasceu!', 'system');
+  }
+}
+
 function updateSky(delta) {
-  timeOfDay = (timeOfDay + delta * 0.012) % 1;
+  timeOfDay = (timeOfDay + delta * DAY_SPEED) % 1;
   const angle = timeOfDay * Math.PI * 2;
   const dayFactor = Math.max(0.08, Math.sin(angle) * 0.5 + 0.5);
   scene.background = new THREE.Color().setHSL(0.57, 0.6, 0.18 + dayFactor * 0.52);
@@ -625,6 +779,46 @@ function buildHotbar() {
   });
 }
 
+function addChatMessage(username, message, type = 'player') {
+  if (!chatMessages) return;
+  
+  const msgEl = document.createElement('div');
+  msgEl.className = 'chat-message';
+  
+  if (type === 'system') {
+    msgEl.innerHTML = `<span class="username">[${username}]</span> ${message}`;
+  } else {
+    msgEl.innerHTML = `<span class="username">${username}:</span> ${message}`;
+  }
+  
+  chatMessages.appendChild(msgEl);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function toggleChat() {
+  const isHidden = chatContainer.classList.contains('hidden');
+  chatContainer.classList.toggle('hidden', !isHidden);
+  
+  if (isHidden) {
+    setTimeout(() => chatInput.focus(), 100);
+  }
+}
+
+function sendChatMessage() {
+  const message = chatInput.value.trim();
+  if (!message) return;
+  
+  const playerName = localPlayerName || 'Jogador';
+  addChatMessage(playerName, message, 'player');
+  chatInput.value = '';
+  
+  // Em modo online, aqui seria enviado para o servidor
+  if (onlineMode) {
+    // Simulação de broadcast para outros jogadores
+    console.log(`[CHAT] ${playerName}: ${message}`);
+  }
+}
+
 function buildInventory() {
   inventoryGrid.innerHTML = '';
   BLOCKS.forEach((def) => {
@@ -716,6 +910,19 @@ window.addEventListener('keydown', (event) => {
     togglePause();
     return;
   }
+  
+  // Abrir chat com a tecla C
+  if (event.code === 'KeyC' && gameScreen.classList.contains('active')) {
+    toggleChat();
+    return;
+  }
+  
+  // Enviar mensagem no chat com Enter
+  if (event.code === 'Enter' && !chatContainer.classList.contains('hidden')) {
+    sendChatMessage();
+    return;
+  }
+  
   setKey(event.code, true);
   const slotIndex = Number(event.key) - 1;
   if (slotIndex >= 0 && slotIndex < HOTBAR_IDS.length) {
@@ -824,6 +1031,86 @@ createWorldBtn.onclick = () => {
   worldNameInput.value = '';
   renderWorldList();
 };
+
+// Modo online - simulação com prompt de nome
+onlineModeBtn.onclick = () => {
+  if (!onlineMode) {
+    const playerName = prompt('Digite seu nome de jogador:', 'Jogador' + Math.floor(Math.random() * 1000));
+    if (playerName && playerName.trim()) {
+      localPlayerName = playerName.trim();
+      onlineMode = true;
+      addChatMessage('Sistema', `Modo online ativado! Bem-vindo, ${localPlayerName}!`, 'system');
+      
+      // Simular outro jogador entrando
+      setTimeout(() => {
+        const otherPlayer = 'Jogador' + Math.floor(Math.random() * 100);
+        onlinePlayers.push(otherPlayer);
+        addChatMessage('Sistema', `${otherPlayer} entrou no mundo!`, 'system');
+      }, 2000);
+    }
+  } else {
+    onlineMode = false;
+    localPlayerName = '';
+    onlinePlayers = [];
+    addChatMessage('Sistema', 'Modo online desativado.', 'system');
+  }
+};
+
+// Editar nome do mundo
+editWorldNameBtn.onclick = () => {
+  if (currentWorld) {
+    editWorldNameInput.value = currentWorld.name;
+    editWorldModal.classList.remove('hidden');
+  }
+};
+
+closeEditModalBtn.onclick = () => {
+  editWorldModal.classList.add('hidden');
+};
+
+saveEditBtn.onclick = () => {
+  const newName = editWorldNameInput.value.trim();
+  if (newName && currentWorld) {
+    currentWorld.name = newName;
+    currentWorldNameEl.textContent = newName;
+    upsertWorld(currentWorld);
+    editWorldModal.classList.add('hidden');
+    addChatMessage('Sistema', `Nome do mundo alterado para: ${newName}`, 'system');
+  }
+};
+
+// Modais de configuração
+closeModalBtn.onclick = () => {
+  settingsModal.classList.add('hidden');
+};
+
+survivalModeBtn.onclick = () => {
+  gameMode = 'survival';
+  playerHealth = 100;
+  settingsModal.classList.add('hidden');
+  addChatMessage('Sistema', 'Modo Survival ativado!', 'system');
+};
+
+creativeModeBtn.onclick = () => {
+  gameMode = 'creative';
+  playerHealth = 100;
+  settingsModal.classList.add('hidden');
+  addChatMessage('Sistema', 'Modo Criativo ativado!', 'system');
+};
+
+// Botão de chat no mobile
+if (chatBtn) {
+  chatBtn.onclick = () => toggleChat();
+}
+
+// Enviar mensagem no chat ao pressionar Enter no input
+if (chatInput) {
+  chatInput.addEventListener('keydown', (e) => {
+    if (e.code === 'Enter') {
+      sendChatMessage();
+    }
+  });
+}
 
 exportWorldBtn.onclick = exportSelectedWorld;
 inventoryBtn.onclick = () => inventoryPanel.classList.toggle('hidden');

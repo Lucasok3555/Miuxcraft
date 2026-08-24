@@ -18,10 +18,39 @@
         </div>
         <div class="world-actions">
           <button id="export-world-btn" disabled>Exportar mundo</button>
+          <button id="online-mode-btn">Modo Online</button>
         </div>
         <div id="world-list" class="world-list"></div>
       </div>
     </section>
+
+    <!-- Modal para configurações -->
+    <div id="settings-modal" class="modal-overlay hidden">
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h2>Configurações</h2>
+          <button id="close-modal-btn" class="close-btn">×</button>
+        </div>
+        <div class="modal-content">
+          <button id="survival-mode-btn">Modo Survival</button>
+          <button id="creative-mode-btn">Modo Criativo</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal de edição do mundo -->
+    <div id="edit-world-modal" class="modal-overlay hidden">
+      <div class="modal-panel">
+        <div class="modal-header">
+          <h2>Editar Mundo</h2>
+          <button id="close-edit-modal-btn" class="close-btn">×</button>
+        </div>
+        <div class="modal-content">
+          <input id="edit-world-name" type="text" maxlength="24" placeholder="Novo nome do mundo">
+          <button id="save-edit-btn">Salvar</button>
+        </div>
+      </div>
+    </div>
 
     <section id="game-screen" class="screen">
       <canvas id="game-canvas"></canvas>
@@ -30,11 +59,26 @@
         <div id="top-bar">
           <div id="world-status">Dia claro</div>
           <div id="selected-block-label">Bloco: Grama</div>
+          <div id="world-name-display">
+            <span id="current-world-name"></span>
+            <button id="edit-world-name-btn" class="small-btn">✏️</button>
+          </div>
           <button id="pause-btn">Sair</button>
         </div>
 
         <div id="crosshair">+</div>
         <div id="player-hand"></div>
+
+        <!-- Barra de oxigênio -->
+        <div id="oxygen-bar" class="hidden">
+          <div id="oxygen-fill"></div>
+        </div>
+
+        <!-- Chat -->
+        <div id="chat-container" class="hidden">
+          <div id="chat-messages"></div>
+          <input id="chat-input" type="text" placeholder="Digite sua mensagem..." maxlength="100">
+        </div>
 
         <div id="mobile-controls">
           <div id="joystick-zone">
@@ -47,6 +91,7 @@
             <button id="break-btn" class="round-btn">Quebrar</button>
             <button id="place-btn" class="round-btn">Colocar</button>
             <button id="inventory-btn" class="round-btn">Menu</button>
+            <button id="chat-btn" class="round-btn">💬</button>
           </div>
         </div>
 
