@@ -3,85 +3,23 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Voxel Sandbox 3D</title>
+  <title>Voxel Sandbox</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div id="app">
-    <section id="home-screen" class="screen active">
-      <div class="shell">
-        <header class="home-header">
-          <div>
-            <h1>Voxel Sandbox 3D</h1>
-            <p>Mundos infinitos em pedaços, biomas, mobs, inventário, crafting e controles para PC e celular.</p>
-          </div>
-          <button id="quick-play-btn">Jogar</button>
-        </header>
-
-        <main class="home-grid">
-          <section class="panel">
-            <div class="panel-title">
-              <h2>Mundos</h2>
-              <button id="download-world-btn" disabled>Baixar</button>
-            </div>
-            <div class="create-grid">
-              <input id="world-name-input" maxlength="28" placeholder="Nome do mundo">
-              <select id="game-mode-select">
-                <option value="creative">Criativo</option>
-                <option value="survival">Sobrevivência</option>
-              </select>
-              <button id="create-world-btn">Criar mundo</button>
-            </div>
-            <div id="world-list" class="list"></div>
-          </section>
-
-          <section class="panel">
-            <div class="panel-title">
-              <h2>Jogar online</h2>
-              <button id="online-test-btn">Teste</button>
-            </div>
-            <div class="online-grid">
-              <textarea id="online-code-input" rows="4" placeholder="Cole o codigo WebRTC aqui"></textarea>
-              <button id="join-online-btn">Procurar mundo</button>
-            </div>
-            <div id="online-status" class="status-line">Aguardando codigo.</div>
-            <div id="online-world-list" class="list compact"></div>
-          </section>
-
-          <section class="panel">
-            <div class="panel-title">
-              <h2>Mods JS</h2>
-              <button id="export-mod-btn">Exportar mod</button>
-            </div>
-            <label class="file-button">
-              <input id="mod-file-input" type="file" accept=".js">
-              Adicionar mod
-            </label>
-            <div id="mod-list" class="list compact"></div>
-          </section>
-
-          <section class="panel">
-            <div class="panel-title">
-              <h2>Configurações</h2>
-            </div>
-            <label class="setting-row">
-              <span>FPS</span>
-              <select id="fps-select">
-                <option value="60">60</option>
-                <option value="45">45</option>
-                <option value="30">30</option>
-              </select>
-            </label>
-            <label class="setting-row">
-              <span>Nome do usuário</span>
-              <input id="username-input" maxlength="20" placeholder="Jogador">
-            </label>
-            <label class="setting-row checkbox">
-              <span>Pulo automático</span>
-              <input id="auto-jump-input" type="checkbox">
-            </label>
-          </section>
-        </main>
+    <section id="menu-screen" class="screen active">
+      <div class="panel menu-panel">
+        <h1>Voxel Sandbox</h1>
+        <p>Crie, exporte e entre em mundos gerados proceduralmente.</p>
+        <div class="create-world">
+          <input id="world-name-input" type="text" maxlength="24" placeholder="Nome do mundo">
+          <button id="create-world-btn">Criar mundo</button>
+        </div>
+        <div class="world-actions">
+          <button id="export-world-btn" disabled>Exportar mundo</button>
+        </div>
+        <div id="world-list" class="world-list"></div>
       </div>
     </section>
 
@@ -89,82 +27,46 @@
       <canvas id="game-canvas"></canvas>
 
       <div id="hud">
-        <div id="top-hud">
-          <span id="world-label">Mundo</span>
-          <span id="clock-label">Dia</span>
-          <span id="health-label">Vida infinita</span>
-          <button id="pause-btn">Pausar</button>
+        <div id="top-bar">
+          <div id="world-status">Dia claro</div>
+          <div id="selected-block-label">Bloco: Grama</div>
+          <button id="pause-btn">Sair</button>
         </div>
-        <div id="crosshair"></div>
+
+        <div id="crosshair">+</div>
         <div id="player-hand"></div>
-        <div id="hotbar"></div>
 
         <div id="mobile-controls">
           <div id="joystick-zone">
-            <div id="joystick-base"><div id="joystick-thumb"></div></div>
+            <div id="joystick-base">
+              <div id="joystick-thumb"></div>
+            </div>
           </div>
-          <div id="mobile-buttons">
-            <button id="mobile-inventory-btn">Mochila</button>
-            <button id="mobile-jump-btn">Pular</button>
-            <button id="mobile-break-btn">Quebrar</button>
-            <button id="mobile-place-btn">Colocar</button>
+          <div id="mobile-actions">
+            <button id="jump-btn" class="round-btn">Pular</button>
+            <button id="break-btn" class="round-btn">Quebrar</button>
+            <button id="place-btn" class="round-btn">Colocar</button>
+            <button id="inventory-btn" class="round-btn">Menu</button>
           </div>
         </div>
+
+        <div id="hotbar"></div>
       </div>
 
-      <div id="loading-panel" class="overlay hidden">
-        <div class="panel modal small">
-          <h2>Carregando mundo</h2>
-          <div class="loading-track"><div id="loading-fill"></div></div>
-          <div id="loading-label" class="status-line">Gerando terreno...</div>
-        </div>
-      </div>
-
-      <div id="inventory-panel" class="overlay hidden">
-        <div class="panel modal">
-          <div class="panel-title">
-            <h2 id="inventory-title">Inventário</h2>
+      <div id="inventory-panel" class="overlay-panel hidden">
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Banco de blocos</h2>
             <button id="close-inventory-btn">Fechar</button>
           </div>
-          <input id="block-search-input" placeholder="Pesquisar blocos">
-          <div id="creative-block-list" class="item-grid"></div>
-          <div id="survival-inventory" class="survival-grid hidden"></div>
-          <div id="crafting-box" class="crafting hidden">
-            <h3>Crafting</h3>
-            <button data-recipe="sticks">1 madeira = 4 gravetos</button>
-            <button data-recipe="sword">graveto + madeira = espada</button>
-            <p id="crafting-message"></p>
-          </div>
+          <div id="inventory-grid" class="inventory-grid"></div>
         </div>
       </div>
 
-      <div id="pause-panel" class="overlay hidden">
-        <div class="panel modal small">
-          <h2>Pausa</h2>
-          <button id="resume-btn">Voltar ao jogo</button>
-          <button id="share-world-btn">Compartilhar e jogar juntos</button>
-          <button id="pause-settings-btn">Configurações</button>
+      <div id="pause-panel" class="overlay-panel hidden">
+        <div class="panel">
+          <h2>Menu do jogo</h2>
           <button id="save-exit-btn">Salvar e sair</button>
-        </div>
-      </div>
-
-      <div id="share-panel" class="overlay hidden">
-        <div class="panel modal">
-          <div class="panel-title">
-            <h2>Codigo online WebRTC</h2>
-            <button id="close-share-btn">Fechar</button>
-          </div>
-          <p class="status-line">Envie este codigo para outro jogador entrar neste mesmo mundo. O pareamento usa WebRTC por codigo, sem servidor externo.</p>
-          <textarea id="share-code-output" rows="8" readonly></textarea>
-          <div id="share-status" class="status-line">Gerando codigo.</div>
-        </div>
-      </div>
-
-      <div id="death-panel" class="overlay hidden">
-        <div class="panel modal small">
-          <h2>Você morreu</h2>
-          <button id="revive-btn">Reviver</button>
-          <button id="death-exit-btn">Sair do jogo</button>
         </div>
       </div>
     </section>
