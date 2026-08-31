@@ -50,7 +50,8 @@ const ITEMS = [
   { id: 'sword', name: 'Espada', color: 0xb8c4ca }
 ];
 
-const HOTBAR = ['grass', 'stone', 'wood', 'sand', 'glass', 'water', 'brick', 'diamond_block', 'furnace', 'torch', 'light_block', 'door'];
+const DEFAULT_HOTBAR = ['grass', 'stone', 'wood', 'sand', 'glass', 'water', 'brick', 'diamond_block', 'furnace'];
+let HOTBAR = [...DEFAULT_HOTBAR];
 
 const BIOMES = {
   forest: { name: 'Floresta', top: 'grass', treeChance: 0.065, grassChance: 0.18, tint: 0x5da84d },
@@ -1254,6 +1255,8 @@ async function startWorld(id) {
   await preloadInitialChunks();
   createClouds();
   resetMobs();
+  HOTBAR = [...DEFAULT_HOTBAR];
+  selectedItem = HOTBAR[0];
   renderHotbar();
   updateHud();
   el.loadingPanel.classList.add('hidden');
@@ -1318,6 +1321,14 @@ function selectItem(id) {
   renderHotbar();
 }
 
+function pickFromInventory(id) {
+  if (!HOTBAR.includes(id)) {
+    const slot = HOTBAR.indexOf(selectedItem);
+    HOTBAR[slot >= 0 ? slot : 0] = id;
+  }
+  selectItem(id);
+}
+
 function renderInventory() {
   const creative = currentWorld?.mode === 'creative';
   el.inventoryTitle.textContent = creative ? 'Menu criativo' : 'Inventario';
@@ -1337,7 +1348,7 @@ function renderCreativeList() {
     button.style.background = `#${item.color.toString(16).padStart(6, '0')}`;
     button.textContent = item.name;
     button.onclick = () => {
-      selectItem(item.id);
+      pickFromInventory(item.id);
       el.inventoryPanel.classList.add('hidden');
     };
     el.creativeList.append(button);
@@ -1355,7 +1366,7 @@ function renderSurvivalInventory() {
     const slot = document.createElement('button');
     slot.className = 'survival-slot';
     slot.textContent = `${itemName(id)}\n${qty}`;
-    slot.onclick = () => selectItem(id);
+    slot.onclick = () => pickFromInventory(id);
     el.survivalInventory.append(slot);
   }
 }
