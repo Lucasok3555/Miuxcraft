@@ -13,7 +13,6 @@ const SETTINGS_KEY = 'voxel-sandbox-web-settings-v1';
 
 const BLOCKS = [
   { id: 'grass', name: 'Grama', color: 0x5da84d, solid: true },
-  { id: 'grass', name: 'lucas', color: 0x5da84d, solid: true },
   { id: 'stone', name: 'Pedra', color: 0x777a7d, solid: true },
   { id: 'water', name: 'Agua', color: 0x3a91d4, solid: false, transparent: true, opacity: 0.62 },
   { id: 'wood', name: 'Madeira', color: 0x8b5b32, solid: true },
@@ -69,6 +68,7 @@ const el = {
   worldName: document.getElementById('world-name-input'),
   gameMode: document.getElementById('game-mode-select'),
   createWorld: document.getElementById('create-world-btn'),
+  quickPlay: document.getElementById('quick-play-btn'),
   downloadWorld: document.getElementById('download-world-btn'),
   worldList: document.getElementById('world-list'),
   onlineCodeInput: document.getElementById('online-code-input'),
@@ -781,15 +781,6 @@ function updateFreeCam(delta) {
   camera.rotation.x = freeCamState.pitch;
 }
 
-function shouldAutoJump(moveDir, footY) {
-  if (moveDir.lengthSq() < 0.0001) return false;
-  const aheadX = player.position.x + moveDir.x * 0.55;
-  const aheadZ = player.position.z + moveDir.z * 0.55;
-  const blocked = isSolidAt(aheadX, footY + 0.15, aheadZ);
-  const clearAbove = !isSolidAt(aheadX, footY + 1.1, aheadZ);
-  return blocked && clearAbove;
-}
-
 function updatePlayer(delta) {
   if (player.freeCam) {
     updateFreeCam(delta);
@@ -803,7 +794,6 @@ function updatePlayer(delta) {
   const forward = new THREE.Vector3(Math.sin(player.yaw), 0, Math.cos(player.yaw));
   const right = new THREE.Vector3(forward.z, 0, -forward.x);
   const move = forward.multiplyScalar(input.z).add(right.multiplyScalar(input.x));
-  const moveDir = move.lengthSq() > 0.0001 ? move.clone().normalize() : move;
   const creative = currentWorld.mode === 'creative';
   const inLiquid = liquidAt(player.position.x, player.position.y - 0.8, player.position.z);
   const flying = creative && player.flyMode;
@@ -817,7 +807,7 @@ function updatePlayer(delta) {
   } else if (inLiquid) {
     player.velocity.y = Math.max(player.velocity.y - 4 * delta, -2.4);
     if (controls.jump) player.velocity.y = 3.3;
-  } else if ((controls.jump || (settings.autoJump && shouldAutoJump(moveDir, player.position.y - PLAYER_HEIGHT))) && player.onGround) {
+  } else if ((controls.jump || (settings.autoJump && input.lengthSq() > 0)) && player.onGround) {
     player.velocity.y = creative ? 8.4 : 8;
     player.onGround = false;
   }
@@ -1163,15 +1153,11 @@ function renderWorlds() {
   for (const world of worlds) {
     const row = document.createElement('div');
     row.className = `world-row${world.id === selectedWorldId ? ' selected' : ''}`;
-    row.onclick = () => {
-      selectedWorldId = world.id;
-      renderWorlds();
-    };
     const meta = document.createElement('div');
     meta.innerHTML = `<strong>${world.name}</strong><small>${world.mode === 'creative' ? 'Criativo' : 'Sobrevivência'} | seed ${world.seed}</small>`;
     const actions = document.createElement('div');
     actions.className = 'world-actions';
-
+    
     const editBtn = document.createElement('button');
     editBtn.textContent = 'Editar';
     editBtn.onclick = (e) => {
@@ -1179,14 +1165,11 @@ function renderWorlds() {
       openEditWorldModal(world.id);
     };
 
-    const deleteBtn = document.createElement('button');
-    deleteBtn.textContent = 'Apagar';
-    deleteBtn.onclick = (e) => {
+    const select = document.createElement('button');
+    select.textContent = 'Selecionar';
+    select.onclick = (e) => {
       e.stopPropagation();
-      if (!window.confirm(`Apagar o mundo "${world.name}"? Essa acao nao pode ser desfeita.`)) return;
-      worlds = worlds.filter((item) => item.id !== world.id);
-      if (selectedWorldId === world.id) selectedWorldId = worlds[0]?.id ?? null;
-      saveWorlds();
+      selectedWorldId = world.id;
       renderWorlds();
     };
 
@@ -1197,7 +1180,7 @@ function renderWorlds() {
       startWorld(world.id);
     };
 
-    actions.append(editBtn, deleteBtn, play);
+    actions.append(editBtn, select, play);
     row.append(meta, actions);
     el.worldList.append(row);
   }
@@ -1720,7 +1703,7 @@ function updateJoystick(clientX, clientY) {
   const cy = rect.top + rect.height / 2;
   const dx = clientX - cx;
   const dy = clientY - cy;
-  const max = Math.max(24, rect.width / 2 - 14);
+  const max = 48;
   const len = Math.min(max, Math.hypot(dx, dy));
   const angle = Math.atan2(dy, dx);
   const x = Math.cos(angle) * len;
@@ -1838,6 +1821,10 @@ window.addEventListener('touchend', (event) => {
 }, { passive: true });
 
 el.createWorld.onclick = () => createWorld(el.worldName.value.trim(), el.gameMode.value);
+el.quickPlay.onclick = () => {
+  if (!worlds.length) createWorld('Meu mundo', el.gameMode.value);
+  startWorld(selectedWorldId || worlds[0].id);
+};
 el.downloadWorld.onclick = downloadSelectedWorld;
 el.pause.onclick = () => togglePause(true);
 el.resume.onclick = () => togglePause(false);
