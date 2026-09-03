@@ -1,4 +1,4 @@
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js';
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.webgpu.js';
 
 const CHUNK_SIZE = 16;
 const LOAD_RADIUS = 2;
@@ -10,6 +10,7 @@ const WORLD_BOTTOM = -96;
 const STORAGE_KEY = 'voxel-sandbox-web-worlds-v2';
 const MOD_STORAGE_KEY = 'voxel-sandbox-web-mods-v1';
 const SETTINGS_KEY = 'voxel-sandbox-web-settings-v1';
+const CHUNK_CACHE_VERSION = 'g2';
 
 const BLOCKS = [
   { id: 'grass', name: 'Grama', color: 0x5da84d, solid: true },
@@ -54,12 +55,12 @@ const DEFAULT_HOTBAR = ['grass', 'stone', 'wood', 'sand', 'glass', 'water', 'bri
 let HOTBAR = [...DEFAULT_HOTBAR];
 
 const BIOMES = {
-  forest: { name: 'Floresta', top: 'grass', treeChance: 0.065, grassChance: 0.18, tint: 0x5da84d },
-  snow: { name: 'Neve', top: 'wool', treeChance: 0.025, grassChance: 0.035, tint: 0xe8edf0 },
-  savanna: { name: 'Savana', top: 'grass', treeChance: 0.015, grassChance: 0.1, tint: 0xb6ac5c },
-  desert: { name: 'Deserto', top: 'sand', treeChance: 0.002, grassChance: 0, tint: 0xd9c27d },
-  plains: { name: 'Planicie', top: 'grass', treeChance: 0.014, grassChance: 0.15, tint: 0x70a94f },
-  mountains: { name: 'Montanhas', top: 'stone', treeChance: 0.006, grassChance: 0.02, tint: 0x9096a0 }
+  forest: { name: 'Floresta', top: 'grass', treeChance: 0.1, grassChance: 0.18, fallenLogChance: 0.02, tint: 0x5da84d },
+  snow: { name: 'Neve', top: 'wool', treeChance: 0.04, grassChance: 0.035, fallenLogChance: 0.01, tint: 0xe8edf0 },
+  savanna: { name: 'Savana', top: 'grass', treeChance: 0.025, grassChance: 0.1, fallenLogChance: 0.008, tint: 0xb6ac5c },
+  desert: { name: 'Deserto', top: 'sand', treeChance: 0.002, grassChance: 0, fallenLogChance: 0, tint: 0xd9c27d },
+  plains: { name: 'Planicie', top: 'grass', treeChance: 0.035, grassChance: 0.15, fallenLogChance: 0.012, tint: 0x70a94f },
+  mountains: { name: 'Montanhas', top: 'stone', treeChance: 0.012, grassChance: 0.02, fallenLogChance: 0.006, tint: 0x9096a0 }
 };
 
 const el = {
@@ -136,10 +137,12 @@ const el = {
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(74, window.innerWidth / window.innerHeight, 0.1, 550);
-const renderer = new THREE.WebGLRenderer({ canvas: el.canvas, antialias: true, powerPreference: 'high-performance' });
+const renderer = new THREE.WebGPURenderer({ canvas: el.canvas, antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
+let rendererReady = false;
+renderer.init().then(() => { rendererReady = true; }).catch((err) => console.error('WebGPU init falhou:', err));
 
 const hemi = new THREE.HemisphereLight(0xbfe7ff, 0x394128, 0.9);
 const sun = new THREE.DirectionalLight(0xffefbd, 1.15);
@@ -359,8 +362,19 @@ function biomeAt(x, z) {
 }
 
 function heightAt(x, z) {
-  const base = noise(currentWorld.seed, x, z);
   const detail = smoothNoise(currentWorld.seed + 44, x, z, 7) - 0.5;
+  const continent = noise(currentWorld.seed + 700, x, z);
+  if (continent < 0.34) {
+    const oceanDepth = 18 + (0.34 - continent) * 90;
+    let floor = WATER_LEVEL - oceanDepth;
+    const islandN = smoothNoise(currentWorld.seed + 950, x, z, 16);
+    if (islandN > 0.85) {
+      const bump = (islandN - 0.85) * 150;
+      floor = Math.max(floor, WATER_LEVEL - 6) + bump;
+    }
+    return Math.floor(floor + detail * 2);
+  }
+  const base = noise(currentWorld.seed, x, z);
   const mountain = Math.pow(noise(currentWorld.seed + 90, x, z), 3) * 34;
   const rolling = Math.sin(x * 0.11) * 1.6 + Math.cos(z * 0.1) * 1.4;
   const island = Math.sin(x * 0.012) * Math.cos(z * 0.011) * 3;
@@ -495,7 +509,7 @@ function removeLightIfAny(x, y, z) {
   lightSources.delete(k);
 }
 
-function addPlant(x, y, z, group, color = 0x5e9f46) {
+function addPlant(x, y, z, group, color = 0x5e9f46, recorder) {
   const matKey = `plant-${color}`;
   if (!materials.has(matKey)) {
     materials.set(matKey, new THREE.MeshStandardMaterial({ color, transparent: true, opacity: 0.82, side: THREE.DoubleSide }));
@@ -507,6 +521,7 @@ function addPlant(x, y, z, group, color = 0x5e9f46) {
   a.rotation.y = Math.PI / 4;
   b.rotation.y = -Math.PI / 4;
   group.add(a, b);
+  if (recorder) recorder.push([x, y, z, color]);
 }
 
 function generateTree(x, y, z, group) {
@@ -523,11 +538,67 @@ function generateTree(x, y, z, group) {
   }
 }
 
+function generateFallenLog(x, y, z, group) {
+  const len = 2 + Math.floor(hash(currentWorld.seed + 88, x, z) * 3);
+  const alongX = hash(currentWorld.seed + 89, x, z) > 0.5;
+  for (let i = 0; i < len; i += 1) {
+    addMesh(x + (alongX ? i : 0), y, z + (alongX ? 0 : i), 'wood', group);
+  }
+}
+
+function chunkCacheKey(cx, cz) {
+  return `${CHUNK_CACHE_VERSION}|${currentWorld.seed}|${cx}|${cz}`;
+}
+
+function readChunkCache(cx, cz) {
+  try {
+    const raw = localStorage.getItem(chunkCacheKey(cx, cz));
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function writeChunkCache(cx, cz, data) {
+  try {
+    localStorage.setItem(chunkCacheKey(cx, cz), JSON.stringify(data));
+  } catch {}
+}
+
+function applyChunkOverrides(cx, cz) {
+  const minX = cx * CHUNK_SIZE;
+  const maxX = minX + CHUNK_SIZE - 1;
+  const minZ = cz * CHUNK_SIZE;
+  const maxZ = minZ + CHUNK_SIZE - 1;
+  for (const k in currentWorld.overrides) {
+    const parts = k.split('|');
+    const ox = Number(parts[0]);
+    const oz = Number(parts[2]);
+    if (ox >= minX && ox <= maxX && oz >= minZ && oz <= maxZ) {
+      setBlock(ox, Number(parts[1]), oz, currentWorld.overrides[k], true);
+    }
+  }
+}
+
 function loadChunk(cx, cz) {
   const ck = chunkKey(cx, cz);
   if (chunks.has(ck)) return;
   const group = new THREE.Group();
   group.userData = { cx, cz };
+
+  const cached = readChunkCache(cx, cz);
+  if (cached) {
+    for (const entry of cached.blocks) addMesh(entry[1], entry[2], entry[3], entry[0], group);
+    for (const entry of cached.plants || []) addPlant(entry[0], entry[1], entry[2], group, entry[3]);
+    chunks.set(ck, group);
+    worldGroup.add(group);
+    applyChunkOverrides(cx, cz);
+    return;
+  }
+
+  const beforeCount = blockMeshes.length;
+  const plants = [];
   const minX = cx * CHUNK_SIZE;
   const minZ = cz * CHUNK_SIZE;
 
@@ -545,10 +616,14 @@ function loadChunk(cx, cz) {
       const top = blockAt(x, h, z);
       const r = hash(currentWorld.seed + 72, x, z);
       if (top && canGrowTree(x, h + 1, z) && r < biome.treeChance) generateTree(x, h + 1, z, group);
-      if (top === 'grass' && r > 0.72 && r < 0.72 + biome.grassChance) addPlant(x, h + 1, z, group, biome.tint);
+      if (top === 'grass' && r > 0.72 && r < 0.72 + biome.grassChance) addPlant(x, h + 1, z, group, biome.tint, plants);
+      if (top && biome.fallenLogChance && r > 0.4 && r < 0.4 + biome.fallenLogChance && terrainTopAt(x, z) > WATER_LEVEL) generateFallenLog(x, h + 1, z, group);
     }
   }
 
+  const added = blockMeshes.slice(beforeCount);
+  const blocks = added.map((m) => [m.userData.type, m.userData.x, m.userData.y, m.userData.z]);
+  writeChunkCache(cx, cz, { blocks, plants });
   chunks.set(ck, group);
   worldGroup.add(group);
 }
@@ -1081,7 +1156,20 @@ function saveMods() {
 function createWorld(name, mode) {
   const cleanName = name || `Mundo ${worlds.length + 1}`;
   const seed = worldSeed(`${cleanName}-${Date.now()}`);
-  const spawnY = heightAtWithSeed(seed, 0, 0) + PLAYER_HEIGHT + 2;
+  let spawnX = 0;
+  let spawnZ = 0;
+  let spawnH = heightAtWithSeed(seed, 0, 0);
+  if (spawnH < WATER_LEVEL + 1) {
+    for (let r = 4; r <= 80 && spawnH < WATER_LEVEL + 1; r += 4) {
+      for (let a = 0; a < 8 && spawnH < WATER_LEVEL + 1; a += 1) {
+        const tx = Math.round(Math.cos((a / 8) * Math.PI * 2) * r);
+        const tz = Math.round(Math.sin((a / 8) * Math.PI * 2) * r);
+        const th = heightAtWithSeed(seed, tx, tz);
+        if (th >= WATER_LEVEL + 1) { spawnX = tx; spawnZ = tz; spawnH = th; }
+      }
+    }
+  }
+  const spawnY = spawnH + PLAYER_HEIGHT + 2;
   const world = {
     id: `world-${Date.now()}`,
     name: cleanName,
@@ -1090,7 +1178,7 @@ function createWorld(name, mode) {
     createdAt: new Date().toISOString(),
     overrides: {},
     inventory: mode === 'survival' ? { wood: 2 } : {},
-    player: { x: 0, y: spawnY, z: 0, yaw: 0, pitch: -0.18, health: 100 }
+    player: { x: spawnX, y: spawnY, z: spawnZ, yaw: 0, pitch: -0.18, health: 100 }
   };
   worlds.unshift(world);
   selectedWorldId = world.id;
@@ -1690,7 +1778,7 @@ function animate(now = 0) {
     updateDrops(delta);
     updateHud();
   }
-  renderer.render(scene, camera);
+  if (rendererReady) renderer.render(scene, camera);
 }
 
 function resize() {
