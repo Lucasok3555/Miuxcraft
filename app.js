@@ -1,8 +1,6 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.webgpu.js';
 
 const CHUNK_SIZE = 16;
-const LOAD_RADIUS = 2;
-const UNLOAD_RADIUS = 3;
 const BLOCK_SIZE = 1;
 const PLAYER_HEIGHT = 1.75;
 const WATER_LEVEL = 15;
@@ -70,7 +68,6 @@ const el = {
   worldName: document.getElementById('world-name-input'),
   gameMode: document.getElementById('game-mode-select'),
   createWorld: document.getElementById('create-world-btn'),
-  quickPlay: document.getElementById('quick-play-btn'),
   downloadWorld: document.getElementById('download-world-btn'),
   worldList: document.getElementById('world-list'),
   onlineCodeInput: document.getElementById('online-code-input'),
@@ -82,6 +79,7 @@ const el = {
   modList: document.getElementById('mod-list'),
   exportMod: document.getElementById('export-mod-btn'),
   fps: document.getElementById('fps-select'),
+  renderDistance: document.getElementById('render-distance-select'),
   username: document.getElementById('username-input'),
   autoJump: document.getElementById('auto-jump-input'),
   topWorld: document.getElementById('world-label'),
@@ -155,12 +153,11 @@ const moonMesh = new THREE.Mesh(new THREE.SphereGeometry(1.6, 18, 18), new THREE
 scene.add(sunMesh, moonMesh);
 
 const worldGroup = new THREE.Group();
-const mobGroup = new THREE.Group();
 const weatherGroup = new THREE.Group();
 const cloudGroup = new THREE.Group();
 const dropGroup = new THREE.Group();
 const playerAvatar = new THREE.Group();
-scene.add(worldGroup, mobGroup, weatherGroup, cloudGroup, dropGroup, playerAvatar);
+scene.add(worldGroup, weatherGroup, cloudGroup, dropGroup, playerAvatar);
 
 const blockGeo = new THREE.BoxGeometry(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
 const tallGeo = new THREE.BoxGeometry(0.72, 1.8, 0.12);
@@ -169,7 +166,6 @@ const chunks = new Map();
 const loadedBlocks = new Map();
 const blockMeshes = [];
 const lightSources = new Map();
-const mobs = [];
 const drops = [];
 const raycaster = new THREE.Raycaster();
 const clock = new THREE.Clock();
@@ -643,18 +639,28 @@ function unloadChunk(ck) {
   chunks.delete(ck);
 }
 
+function loadRadius() {
+  return Math.max(1, Math.min(4, Number(settings.renderDistance) || 2));
+}
+
+function unloadRadius() {
+  return loadRadius() + 1;
+}
+
 function updateChunks() {
   if (!currentWorld) return;
   const pcx = floorChunk(player.position.x);
   const pcz = floorChunk(player.position.z);
-  for (let dx = -LOAD_RADIUS; dx <= LOAD_RADIUS; dx += 1) {
-    for (let dz = -LOAD_RADIUS; dz <= LOAD_RADIUS; dz += 1) {
+  const r = loadRadius();
+  for (let dx = -r; dx <= r; dx += 1) {
+    for (let dz = -r; dz <= r; dz += 1) {
       loadChunk(pcx + dx, pcz + dz);
     }
   }
+  const ur = unloadRadius();
   for (const [ck, group] of chunks) {
     const dist = Math.max(Math.abs(group.userData.cx - pcx), Math.abs(group.userData.cz - pcz));
-    if (dist > UNLOAD_RADIUS) unloadChunk(ck);
+    if (dist > ur) unloadChunk(ck);
   }
 }
 
@@ -759,39 +765,8 @@ function findTarget() {
   return raycaster.intersectObjects(blockMeshes, false).find((hit) => hit.distance < 7) || null;
 }
 
-function findMobTarget() {
-  raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-  const hits = raycaster.intersectObjects(mobGroup.children, true);
-  if (!hits.length || hits[0].distance >= 6.5) return null;
-  let current = hits[0].object;
-  while (current && current.parent !== mobGroup) {
-    current = current.parent;
-  }
-  return current;
-}
-
-function defeatMob(mobGroupObj) {
-  const index = mobs.findIndex((m) => m.group === mobGroupObj);
-  if (index < 0) return;
-  const mob = mobs[index];
-  const pos = mob.group.position;
-  const dropItem = mob.hostile ? 'diamond_block' : 'wool';
-  createDrop(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z), dropItem);
-  mobGroup.remove(mob.group);
-  mobs.splice(index, 1);
-  showWorldToast(`Mob (${mob.type}) foi derrotado!`);
-}
-
 function interact(place) {
   if (!running || !currentWorld || !el.inventoryPanel.classList.contains('hidden')) return;
-
-  if (!place) {
-    const targetMob = findMobTarget();
-    if (targetMob) {
-      defeatMob(targetMob);
-      return;
-    }
-  }
 
   const hit = findTarget();
   if (!hit) return;
@@ -815,6 +790,15 @@ function isSolidAt(x, y, z) {
   const type = blockAt(Math.floor(x), Math.floor(y), Math.floor(z));
   const def = blockDef(type);
   return Boolean(def?.solid);
+}
+
+function autoJumpNeeded(move) {
+  if (!settings.autoJump || move.lengthSq() === 0) return false;
+  const dir = move.clone().normalize();
+  const footY = Math.floor(player.position.y - PLAYER_HEIGHT);
+  const fx = Math.floor(player.position.x + dir.x * 0.7);
+  const fz = Math.floor(player.position.z + dir.z * 0.7);
+  return isSolidAt(fx, footY, fz) && !isSolidAt(fx, footY + 1, fz);
 }
 
 function liquidAt(x, y, z) {
@@ -883,7 +867,7 @@ function updatePlayer(delta) {
   } else if (inLiquid) {
     player.velocity.y = Math.max(player.velocity.y - 4 * delta, -2.4);
     if (controls.jump) player.velocity.y = 3.3;
-  } else if ((controls.jump || (settings.autoJump && input.lengthSq() > 0)) && player.onGround) {
+  } else if ((controls.jump || autoJumpNeeded(move)) && player.onGround) {
     player.velocity.y = creative ? 8.4 : 8;
     player.onGround = false;
   }
@@ -1051,78 +1035,18 @@ function updateClouds(delta) {
   }
 }
 
-function makeMob(type, x, z, hostile = false) {
-  const group = new THREE.Group();
-  const colors = {
-    Galinha: [0xffffff, 0xffcf4a],
-    Porco: [0xf1a3b2, 0xe47d92],
-    Vaca: [0x6b4b34, 0xf4eee1],
-    Ovelha: [0xe8e8e0, 0x4c4036],
-    Sapo: [0x4d9b58, 0x2d6b37],
-    Aranha: [0x221f24, 0x6b2630],
-    Cobra: [0x315d2c, 0xd2b94c]
-  }[type];
-  const body = new THREE.Mesh(new THREE.BoxGeometry(hostile ? 1.15 : 0.95, hostile ? 0.45 : 0.7, hostile ? 1.15 : 0.65), new THREE.MeshStandardMaterial({ color: colors[0] }));
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.42), new THREE.MeshStandardMaterial({ color: colors[1] }));
-  head.position.set(0, 0.35, 0.55);
-  body.castShadow = true;
-  head.castShadow = true;
-  group.add(body, head);
-  group.position.set(x, heightAt(Math.floor(x), Math.floor(z)) + 1.1, z);
-  mobGroup.add(group);
-  mobs.push({ group, type, hostile, dir: Math.random() * Math.PI * 2, timer: 0 });
-}
-
-function resetMobs() {
-  mobGroup.clear();
-  mobs.length = 0;
-  const passive = ['Galinha', 'Porco', 'Vaca', 'Ovelha', 'Sapo'];
-  for (let i = 0; i < 14; i += 1) {
-    const x = player.position.x + (Math.random() - 0.5) * 45;
-    const z = player.position.z + (Math.random() - 0.5) * 45;
-    makeMob(passive[i % passive.length], x, z, false);
-  }
-}
-
-function updateMobs(delta) {
-  const night = timeOfDay > 0.55 && timeOfDay < 0.92;
-  if (night && mobs.filter((m) => m.hostile).length < 5 && Math.random() < delta * 0.25) {
-    const type = Math.random() > 0.5 ? 'Aranha' : 'Cobra';
-    makeMob(type, player.position.x + (Math.random() - 0.5) * 42, player.position.z + (Math.random() - 0.5) * 42, true);
-  }
-  for (const mob of mobs) {
-    mob.timer -= delta;
-    if (mob.timer <= 0) {
-      mob.timer = 1.4 + Math.random() * 2.4;
-      mob.dir += (Math.random() - 0.5) * 1.5;
-    }
-    if (mob.hostile) {
-      const dx = player.position.x - mob.group.position.x;
-      const dz = player.position.z - mob.group.position.z;
-      if (currentWorld.mode !== 'creative' && Math.hypot(dx, dz) < 18) mob.dir = Math.atan2(dx, dz);
-      if (currentWorld.mode !== 'creative' && Math.hypot(dx, dz) < 1.4) damagePlayer(delta * 12);
-    }
-    const speed = mob.hostile ? 2.1 : 0.75;
-    mob.group.position.x += Math.sin(mob.dir) * speed * delta;
-    mob.group.position.z += Math.cos(mob.dir) * speed * delta;
-    const gx = Math.floor(mob.group.position.x);
-    const gz = Math.floor(mob.group.position.z);
-    mob.group.position.y = terrainTopAt(gx, gz) + 1.1;
-    mob.group.rotation.y = mob.dir;
-  }
-}
-
 function loadSettings() {
   try {
-    return { fps: 60, username: 'Jogador', autoJump: false, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
+    return { fps: 60, renderDistance: 2, username: 'Jogador', autoJump: false, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
   } catch {
-    return { fps: 60, username: 'Jogador', autoJump: false };
+    return { fps: 60, renderDistance: 2, username: 'Jogador', autoJump: false };
   }
 }
 
 function saveSettings() {
   settings = {
     fps: Number(el.fps.value),
+    renderDistance: Number(el.renderDistance.value),
     username: el.username.value.trim() || 'Jogador',
     autoJump: el.autoJump.checked
   };
@@ -1232,6 +1156,14 @@ function persistCurrentWorld() {
   saveWorlds();
 }
 
+function deleteWorld(id) {
+  if (!confirm('Apagar este mundo? Esta ação não pode ser desfeita.')) return;
+  worlds = worlds.filter((w) => w.id !== id);
+  saveWorlds();
+  if (selectedWorldId === id) selectedWorldId = worlds[0]?.id ?? null;
+  renderWorlds();
+}
+
 function renderWorlds() {
   el.worldList.innerHTML = '';
   el.downloadWorld.disabled = !selectedWorldId;
@@ -1254,12 +1186,11 @@ function renderWorlds() {
       openEditWorldModal(world.id);
     };
 
-    const select = document.createElement('button');
-    select.textContent = 'Selecionar';
-    select.onclick = (e) => {
+    const del = document.createElement('button');
+    del.textContent = 'Apagar';
+    del.onclick = (e) => {
       e.stopPropagation();
-      selectedWorldId = world.id;
-      renderWorlds();
+      deleteWorld(world.id);
     };
 
     const play = document.createElement('button');
@@ -1269,7 +1200,7 @@ function renderWorlds() {
       startWorld(world.id);
     };
 
-    actions.append(editBtn, select, play);
+    actions.append(editBtn, del, play);
     row.append(meta, actions);
     el.worldList.append(row);
   }
@@ -1277,13 +1208,11 @@ function renderWorlds() {
 
 function clearLoadedWorld() {
   worldGroup.clear();
-  mobGroup.clear();
   weatherGroup.clear();
   dropGroup.clear();
   chunks.clear();
   loadedBlocks.clear();
   blockMeshes.length = 0;
-  mobs.length = 0;
   drops.length = 0;
 }
 
@@ -1300,8 +1229,9 @@ async function preloadInitialChunks() {
   const pcx = floorChunk(player.position.x);
   const pcz = floorChunk(player.position.z);
   const coords = [];
-  for (let dx = -LOAD_RADIUS; dx <= LOAD_RADIUS; dx += 1) {
-    for (let dz = -LOAD_RADIUS; dz <= LOAD_RADIUS; dz += 1) {
+  const r = loadRadius();
+  for (let dx = -r; dx <= r; dx += 1) {
+    for (let dz = -r; dz <= r; dz += 1) {
       coords.push([pcx + dx, pcz + dz]);
     }
   }
@@ -1342,7 +1272,6 @@ async function startWorld(id) {
   await nextFrame();
   await preloadInitialChunks();
   createClouds();
-  resetMobs();
   HOTBAR = [...DEFAULT_HOTBAR];
   selectedItem = HOTBAR[0];
   renderHotbar();
@@ -1774,7 +1703,6 @@ function animate(now = 0) {
     updateSky(delta);
     updateWeather(delta);
     updateClouds(delta);
-    updateMobs(delta);
     updateDrops(delta);
     updateHud();
   }
@@ -1920,10 +1848,6 @@ window.addEventListener('touchend', (event) => {
 }, { passive: true });
 
 el.createWorld.onclick = () => createWorld(el.worldName.value.trim(), el.gameMode.value);
-el.quickPlay.onclick = () => {
-  if (!worlds.length) createWorld('Meu mundo', el.gameMode.value);
-  startWorld(selectedWorldId || worlds[0].id);
-};
 el.downloadWorld.onclick = downloadSelectedWorld;
 el.pause.onclick = () => togglePause(true);
 el.resume.onclick = () => togglePause(false);
@@ -1983,6 +1907,7 @@ el.modInput.onchange = async () => {
   renderHotbar();
 };
 el.fps.onchange = saveSettings;
+el.renderDistance.onchange = saveSettings;
 el.username.onchange = saveSettings;
 el.autoJump.onchange = saveSettings;
 document.querySelectorAll('[data-recipe]').forEach((button) => {
@@ -1990,6 +1915,7 @@ document.querySelectorAll('[data-recipe]').forEach((button) => {
 });
 
 el.fps.value = String(settings.fps);
+el.renderDistance.value = String(settings.renderDistance ?? 2);
 el.username.value = settings.username;
 el.autoJump.checked = settings.autoJump;
 applyMods();

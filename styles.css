@@ -599,15 +599,49 @@ select {
     height: 98px;
   }
 
+  #hud {
+    --joy-size: clamp(112px, 30vmin, 168px);
+    --joy-pad: clamp(10px, 3vmin, 16px);
+    --joy-gap: clamp(14px, 4.5vmin, 26px);
+  }
+
+  #joystick-zone {
+    left: var(--joy-pad);
+    bottom: var(--joy-pad);
+    width: var(--joy-size);
+    height: var(--joy-size);
+  }
+
+  #joystick-thumb {
+    width: clamp(40px, 11vmin, 60px);
+    height: clamp(40px, 11vmin, 60px);
+  }
+
+  #mobile-buttons {
+    right: var(--joy-pad);
+    bottom: calc(var(--joy-pad) + var(--joy-size) + var(--joy-gap));
+    width: clamp(140px, 38vmin, 200px);
+    gap: clamp(6px, 1.8vmin, 10px);
+  }
+
+  #mobile-buttons button {
+    min-height: clamp(44px, 12vmin, 60px);
+    font-size: clamp(11px, 2.6vmin, 14px);
+    padding: 6px 8px;
+  }
+
   #hotbar {
-    left: 7px;
-    right: 7px;
+    left: calc(var(--joy-pad) + var(--joy-size) + var(--joy-gap));
+    right: var(--joy-pad);
+    bottom: var(--joy-pad);
     transform: none;
-    grid-template-columns: repeat(9, 54px);
+    grid-template-columns: repeat(9, clamp(40px, 11vmin, 58px));
+    padding: clamp(5px, 1.5vmin, 8px);
+    gap: clamp(5px, 1.5vmin, 8px);
   }
 
   .slot {
-    width: 54px;
-    height: 54px;
+    width: clamp(40px, 11vmin, 58px);
+    height: clamp(40px, 11vmin, 58px);
   }
 }
