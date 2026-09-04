@@ -1,8 +1,0 @@
-{
-  "name": "Voxel Sandbox 3D",
-  "description": "Mundos infinitos em pedaços com FastNoise Lite, física Rapier.js, biomas, mobs, inventário, crafting e controles para PC e celular.",
-  "requestFramePermissions": [],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
-}
