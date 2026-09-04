@@ -13,7 +13,7 @@
         <header class="home-header">
           <div>
             <h1>Voxel Sandbox 3D</h1>
-            <p>Mundos infinitos em pedaços, biomas, inventário, crafting e controles para PC e celular.</p>
+            <p>Mundos infinitos em pedaços com FastNoise Lite, física Rapier.js, biomas, mobs, inventário, crafting e controles para PC e celular.</p>
           </div>
         </header>
 
@@ -72,15 +72,6 @@
               </select>
             </label>
             <label class="setting-row">
-              <span>Pedaços (distância)</span>
-              <select id="render-distance-select">
-                <option value="1">1</option>
-                <option value="2">2</option>
-                <option value="3">3</option>
-                <option value="4">4</option>
-              </select>
-            </label>
-            <label class="setting-row">
               <span>Nome do usuário</span>
               <input id="username-input" maxlength="20" placeholder="Jogador">
             </label>
@@ -102,6 +93,7 @@
           <span id="clock-label">Dia</span>
           <span id="health-label">Vida infinita</span>
           <span id="oxygen-label" class="hidden">Oxigenio 100/100</span>
+          <span id="engine-tag" class="engine-badge">Rapier + FastNoise</span>
           <span id="online-tag" class="online-badge hidden">Modo Online</span>
           <button id="pause-btn">Pausar</button>
         </div>
