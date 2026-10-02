@@ -21,6 +21,8 @@
           <section class="panel">
             <div class="panel-title">
               <h2>Mundos</h2>
+              <button id="import-world-btn">Importar</button>
+              <input id="import-world-file" type="file" accept=".json" hidden>
               <button id="download-world-btn" disabled>Baixar</button>
             </div>
             <div class="create-grid">
@@ -79,10 +81,6 @@
                 <option value="3">3</option>
                 <option value="4">4</option>
               </select>
-            </label>
-            <label class="setting-row">
-              <span>Nome do usuário</span>
-              <input id="username-input" maxlength="20" placeholder="Jogador">
             </label>
             <label class="setting-row checkbox">
               <span>Pulo automático</span>

@@ -1,4 +1,11 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.webgpu.js';
+import { smoothNoise, noise } from './noise.js';
+import {
+  ensurePhysics, resetPhysics, createTerrainBody, createPlayerBody,
+  setPlayerVelocity, setPlayerGravityScale, setPlayerTranslation,
+  getPlayerTranslation, getPlayerLinvel, stepPhysics,
+  addBlockCollider, removeBlockCollider, physicsReady
+} from './physics.js';
 
 const CHUNK_SIZE = 16;
 const BLOCK_SIZE = 1;
@@ -69,6 +76,8 @@ const el = {
   gameMode: document.getElementById('game-mode-select'),
   createWorld: document.getElementById('create-world-btn'),
   downloadWorld: document.getElementById('download-world-btn'),
+  importWorld: document.getElementById('import-world-btn'),
+  importWorldFile: document.getElementById('import-world-file'),
   worldList: document.getElementById('world-list'),
   onlineCodeInput: document.getElementById('online-code-input'),
   onlineTest: document.getElementById('online-test-btn'),
@@ -80,7 +89,6 @@ const el = {
   exportMod: document.getElementById('export-mod-btn'),
   fps: document.getElementById('fps-select'),
   renderDistance: document.getElementById('render-distance-select'),
-  username: document.getElementById('username-input'),
   autoJump: document.getElementById('auto-jump-input'),
   topWorld: document.getElementById('world-label'),
   clock: document.getElementById('clock-label'),
@@ -222,6 +230,16 @@ let isOnlineActive = false;
 let messageTimer = null;
 let activePlayers = [];
 
+const NAME_PREFIXES = ['Super', 'Mestre', 'Corajoso', 'Rapido', 'Sagaz', 'Bravo', 'Astuto', 'Nobre', 'Veloz', 'Forte', 'Sabio', 'Destemido', 'Habil', 'Lendario', 'Epic', 'Mistico'];
+const NAME_NOUNS = ['Lobo', 'Tigre', 'Aguia', 'Dragao', 'Leao', 'Falcão', 'Urso', 'Pantera', 'Touro', 'Cobra', 'Tubarao', 'Gato', 'Raposa', 'Tartaruga', 'Guerreiro', 'Caçador', 'Mineiro', 'Construtor', 'Explorador', 'Arqueiro'];
+let generatedPlayerName = null;
+
+function generatePlayerName() {
+  const prefix = NAME_PREFIXES[Math.floor(Math.random() * NAME_PREFIXES.length)];
+  const noun = NAME_NOUNS[Math.floor(Math.random() * NAME_NOUNS.length)];
+  return `${prefix}${noun}`;
+}
+
 function resolveUsernameConflict(name, existing = []) {
   let cleanName = name.trim() || 'Jogador';
   if (!existing.includes(cleanName)) return cleanName;
@@ -305,30 +323,6 @@ function hash(seed, x, z) {
   let n = (x * 374761393 + z * 668265263 + seed * 1442695041) | 0;
   n = (n ^ (n >> 13)) * 1274126177;
   return ((n ^ (n >> 16)) >>> 0) / 4294967295;
-}
-
-function smoothNoise(seed, x, z, scale) {
-  const sx = x / scale;
-  const sz = z / scale;
-  const x0 = Math.floor(sx);
-  const z0 = Math.floor(sz);
-  const tx = sx - x0;
-  const tz = sz - z0;
-  const a = hash(seed, x0, z0);
-  const b = hash(seed, x0 + 1, z0);
-  const c = hash(seed, x0, z0 + 1);
-  const d = hash(seed, x0 + 1, z0 + 1);
-  const ux = tx * tx * (3 - 2 * tx);
-  const uz = tz * tz * (3 - 2 * tz);
-  return THREE.MathUtils.lerp(THREE.MathUtils.lerp(a, b, ux), THREE.MathUtils.lerp(c, d, ux), uz);
-}
-
-function noise(seed, x, z) {
-  return (
-    smoothNoise(seed, x, z, 80) * 0.48 +
-    smoothNoise(seed + 11, x, z, 28) * 0.34 +
-    smoothNoise(seed + 27, x, z, 11) * 0.18
-  );
 }
 
 function worldSeed(text) {
@@ -483,6 +477,7 @@ function addMesh(x, y, z, type, group) {
   blockMeshes.push(mesh);
   loadedBlocks.set(key(x, y, z), mesh);
   if (def.light) addLightIfNeeded(x, y, z, type);
+  if (def.solid) addBlockCollider(x, y, z);
   return mesh;
 }
 
@@ -631,6 +626,7 @@ function unloadChunk(ck) {
     if (obj.isMesh && obj.userData?.type) {
       loadedBlocks.delete(key(obj.userData.x, obj.userData.y, obj.userData.z));
       removeLightIfAny(obj.userData.x, obj.userData.y, obj.userData.z);
+      removeBlockCollider(obj.userData.x, obj.userData.y, obj.userData.z);
       const index = blockMeshes.indexOf(obj);
       if (index >= 0) blockMeshes.splice(index, 1);
     }
@@ -674,6 +670,7 @@ function setBlock(x, y, z, type, skipPhysics) {
     if (index >= 0) blockMeshes.splice(index, 1);
   }
   removeLightIfAny(x, y, z);
+  removeBlockCollider(x, y, z);
   currentWorld.overrides[k] = type;
   if (type) {
     const cx = floorChunk(x);
@@ -723,6 +720,7 @@ function refreshBlockMesh(x, y, z) {
     old.parent?.remove(old);
     loadedBlocks.delete(k);
     removeLightIfAny(x, y, z);
+    removeBlockCollider(x, y, z);
     const index = blockMeshes.indexOf(old);
     if (index >= 0) blockMeshes.splice(index, 1);
   }
@@ -832,7 +830,7 @@ function updateFreeCam(delta) {
   if (controls.descend) freeCamState.position.y -= speed * delta;
   freeCamState.yaw -= controls.lookDX * 0.0022;
   freeCamState.pitch -= controls.lookDY * 0.0022;
-  freeCamState.pitch = THREE.MathUtils.clamp(freeCamState.pitch, -1.5, 1.5);
+  freeCamState.pitch = THREE.MathUtils.clamp(freeCamState.pitch, -1.2, 1.5);
   controls.lookDX = 0;
   controls.lookDY = 0;
   camera.position.copy(freeCamState.position);
@@ -844,6 +842,8 @@ function updateFreeCam(delta) {
 function updatePlayer(delta) {
   if (player.freeCam) {
     updateFreeCam(delta);
+    setPlayerGravityScale(0);
+    setPlayerTranslation(player.position.x, player.position.y, player.position.z);
     updatePlayerAvatar();
     return;
   }
@@ -858,46 +858,39 @@ function updatePlayer(delta) {
   const inLiquid = liquidAt(player.position.x, player.position.y - 0.8, player.position.z);
   const flying = creative && player.flyMode;
   const speed = inLiquid ? 2.6 : creative ? 8.2 : 5.2;
-  player.velocity.x = move.x * speed;
-  player.velocity.z = move.z * speed;
 
   if (flying) {
-    player.velocity.y *= 0.82;
-    if (controls.jump) player.velocity.y = 6.5;
+    setPlayerGravityScale(0);
+    let vy = 0;
+    if (controls.jump) vy = 6.5;
+    else if (controls.descend) vy = -6.5;
+    setPlayerVelocity(move.x * speed, vy, move.z * speed);
   } else if (inLiquid) {
-    player.velocity.y = Math.max(player.velocity.y - 4 * delta, -2.4);
-    if (controls.jump) player.velocity.y = 3.3;
-  } else if ((controls.jump || autoJumpNeeded(move)) && player.onGround) {
-    player.velocity.y = creative ? 8.4 : 8;
-    player.onGround = false;
-  }
-
-  if (!flying && !inLiquid) player.velocity.y -= 23 * delta;
-  if (creative && !flying) player.velocity.y *= 0.98;
-  if (inLiquid) {
-    player.velocity.x *= 0.78;
-    player.velocity.z *= 0.78;
+    setPlayerGravityScale(0);
+    const current = getPlayerLinvel();
+    let vy = Math.max(current.y - 4 * delta, -2.4);
+    if (controls.jump) vy = 3.3;
+    setPlayerVelocity(move.x * speed, vy, move.z * speed);
     if (inLiquid === 'lava') damagePlayer(delta * 18);
+  } else {
+    setPlayerGravityScale(1);
+    const t = getPlayerTranslation();
+    const feet = (t ? t.y : player.position.y) - PLAYER_HEIGHT;
+    const grounded = isSolidAt(player.position.x, Math.floor(feet - 0.15), player.position.z);
+    player.onGround = grounded;
+    const current = getPlayerLinvel();
+    let vy = current.y;
+    if ((controls.jump || autoJumpNeeded(move)) && grounded) vy = creative ? 8.4 : 8;
+    setPlayerVelocity(move.x * speed, vy, move.z * speed);
   }
 
-  const next = player.position.clone().addScaledVector(player.velocity, delta);
-  const footY = next.y - PLAYER_HEIGHT;
-  if (isSolidAt(next.x, footY, next.z)) {
-    next.y = Math.floor(footY) + PLAYER_HEIGHT + 1;
-    player.velocity.y = 0;
-    player.onGround = true;
-  } else {
-    player.onGround = false;
-  }
-  if (isSolidAt(next.x, next.y - 0.25, next.z)) {
-    next.x = player.position.x;
-    next.z = player.position.z;
-  }
-  if (next.y < -12) damagePlayer(999);
-  player.position.copy(next);
+  stepPhysics();
+  const resolved = getPlayerTranslation();
+  if (resolved) player.position.set(resolved.x, resolved.y, resolved.z);
+  if (player.position.y < -12) damagePlayer(999);
   player.yaw -= controls.lookDX * 0.0022;
   player.pitch -= controls.lookDY * 0.0022;
-  player.pitch = THREE.MathUtils.clamp(player.pitch, -1.48, 1.48);
+  player.pitch = THREE.MathUtils.clamp(player.pitch, -1.2, 1.48);
   controls.lookDX = 0;
   controls.lookDY = 0;
   camera.position.copy(player.position);
@@ -1066,9 +1059,9 @@ function updateClouds(delta) {
 
 function loadSettings() {
   try {
-    return { fps: 60, renderDistance: 2, username: 'Jogador', autoJump: false, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
+    return { fps: 60, renderDistance: 2, autoJump: false, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
   } catch {
-    return { fps: 60, renderDistance: 2, username: 'Jogador', autoJump: false };
+    return { fps: 60, renderDistance: 2, autoJump: false };
   }
 }
 
@@ -1076,7 +1069,6 @@ function saveSettings() {
   settings = {
     fps: Number(el.fps.value),
     renderDistance: Number(el.renderDistance.value),
-    username: el.username.value.trim() || 'Jogador',
     autoJump: el.autoJump.checked
   };
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
@@ -1243,6 +1235,7 @@ function clearLoadedWorld() {
   loadedBlocks.clear();
   blockMeshes.length = 0;
   drops.length = 0;
+  resetPhysics();
 }
 
 function setLoading(progress, text) {
@@ -1299,6 +1292,10 @@ async function startWorld(id) {
   setLoading(0, 'Preparando seed e biomas...');
   buildPlayerAvatar();
   await nextFrame();
+  if (await ensurePhysics()) {
+    createTerrainBody();
+    createPlayerBody(player.position.x, player.position.y, player.position.z);
+  }
   await preloadInitialChunks();
   createClouds();
   HOTBAR = [...DEFAULT_HOTBAR];
@@ -1308,22 +1305,26 @@ async function startWorld(id) {
   el.loadingPanel.classList.add('hidden');
   running = true;
 
-  const currentUsername = resolveUsernameConflict(settings.username || 'Jogador', activePlayers);
-  if (!activePlayers.includes(currentUsername)) {
-    activePlayers.push(currentUsername);
+  generatedPlayerName = resolveUsernameConflict(generatePlayerName(), activePlayers);
+  if (!activePlayers.includes(generatedPlayerName)) {
+    activePlayers.push(generatedPlayerName);
   }
-  showWorldToast(`${currentUsername} entrou no mundo!`);
+  showWorldToast(`${generatedPlayerName} entrou no mundo!`);
 
   if (isOnlineActive) {
     el.onlineTag.classList.remove('hidden');
   } else {
     el.onlineTag.classList.add('hidden');
   }
+
+  if (document.documentElement.requestFullscreen) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  }
 }
 
 function exitToHome() {
-  const currentUsername = settings.username || 'Jogador';
-  showWorldToast(`${currentUsername} saiu do mundo!`);
+  showWorldToast(`${generatedPlayerName || 'Jogador'} saiu do mundo!`);
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   persistCurrentWorld();
   running = false;
   if (document.pointerLockElement) document.exitPointerLock();
@@ -1516,7 +1517,7 @@ function addChatMessage(author, text) {
 function sendChatMessage() {
   const text = el.chatInput.value.trim();
   if (!text) return;
-  addChatMessage(settings.username || 'Jogador', text);
+  addChatMessage(generatedPlayerName || 'Jogador', text);
   el.chatInput.value = '';
 }
 
@@ -1559,7 +1560,7 @@ async function shareCurrentWorld() {
   el.shareStatus.textContent = 'Gerando codigo WebRTC e ativando modo online.';
   if (document.pointerLockElement) document.exitPointerLock();
 
-  const hostUsername = resolveUsernameConflict(settings.username || 'Jogador', activePlayers);
+  const hostUsername = resolveUsernameConflict(generatedPlayerName || generatePlayerName(), activePlayers);
   if (!activePlayers.includes(hostUsername)) activePlayers.push(hostUsername);
 
   const world = worlds.find((item) => item.id === currentWorld.id) || currentWorld;
@@ -1666,6 +1667,25 @@ function downloadSelectedWorld() {
   anchor.download = `${world.name.replace(/\W+/g, '-').toLowerCase() || 'mundo'}.json`;
   anchor.click();
   URL.revokeObjectURL(url);
+}
+
+async function importWorldFile(file) {
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if (!data.name || !data.seed || !data.player) throw new Error('arquivo invalido');
+    const imported = structuredClone(data);
+    imported.id = `world-${Date.now()}`;
+    imported.createdAt = new Date().toISOString();
+    worlds.unshift(imported);
+    selectedWorldId = imported.id;
+    saveWorlds();
+    renderWorlds();
+    showWorldToast(`Mundo "${imported.name}" importado!`);
+  } catch (error) {
+    alert('Arquivo de mundo invalido. Selecione um arquivo JSON exportado pelo jogo.');
+  }
 }
 
 function renderMods() {
@@ -1917,6 +1937,8 @@ el.revive.onclick = () => {
   player.oxygen = 100;
   player.position.set(0, terrainTopAt(0, 0) + PLAYER_HEIGHT + 2, 0);
   player.velocity.set(0, 0, 0);
+  setPlayerTranslation(player.position.x, player.position.y, player.position.z);
+  setPlayerVelocity(0, 0, 0);
   running = true;
   el.deathPanel.classList.add('hidden');
 };
@@ -1937,15 +1959,20 @@ el.modInput.onchange = async () => {
 };
 el.fps.onchange = saveSettings;
 el.renderDistance.onchange = saveSettings;
-el.username.onchange = saveSettings;
 el.autoJump.onchange = saveSettings;
+el.importWorld.onclick = () => el.importWorldFile.click();
+el.importWorldFile.onchange = async () => {
+  const file = el.importWorldFile.files?.[0];
+  if (!file) return;
+  await importWorldFile(file);
+  el.importWorldFile.value = '';
+};
 document.querySelectorAll('[data-recipe]').forEach((button) => {
   button.addEventListener('click', () => craft(button.dataset.recipe));
 });
 
 el.fps.value = String(settings.fps);
 el.renderDistance.value = String(settings.renderDistance ?? 2);
-el.username.value = settings.username;
 el.autoJump.checked = settings.autoJump;
 applyMods();
 renderWorlds();
