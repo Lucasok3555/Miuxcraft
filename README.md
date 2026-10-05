@@ -1,31 +1,14 @@
-## 🧱 BlockWorld (Mundo de Blocos)
+## Que que é o jogo 
+O jogo é um jogo de mundo aberto aonde você pode consumir a blocos o mundo aberto infinito aonde você pode conseguir qualquer coisa 
 
-Um jogo sandbox de mundo aberto baseado em voxels/blocos, 100% gratuito e de código aberto (Open Source).
+## Como que funciona o jogo
+O jogo é de código aberto livre para todo mundo usar gratuitamente você pode usar para criar seu próprio jogo com base
+O jogo permite você mostra o mundo e tirar jogos por cima dele
+O base é um jogo de mundo aberto de código aberto e claramente o mundo infinito e vários blocos para você usar 
+Sendo uma ótima alternativa ao Minecraft
 
-## 📖 Sobre o Projeto
+## A criminalidade para mods 
+Permite criar moldes em JavaScript em qual cidades infinitas para você criar mod do jeito que você quiser 
 
-O BlockWorld é um projeto comunitário focado em fornecer uma experiência de exploração e construção em mundo infinito procedural, totalmente livre de custos e sem restrições proprietárias.
-
-Nosso objetivo é criar uma base leve, personalizável e acessível para jogadores e desenvolvedores que queiram explorar a criação de mundos em 3D, suporte a mods e modos multijogador.
-
-✨ Funcionalidades
-
-## 🌍 Geração de Mundo Procedural: Terrenos infinitos com biomas variados (florestas, desertos, montanhas e cavernas).
-
-⛏️ Construção e Mineração: Quebre e coloque diversos tipos de blocos para moldar o ambiente.
-
-🔌 Sistema de Mods Extensível: Arquitetura pensada para permitir a criação de novos blocos, itens e mecânicas facilmente.
-
-👥 Suporte a Multijogador (Em breve): Crie seu próprio servidor para jogar com amigos.
-
-⚡ Desempenho Otimizado: Renderização eficiente baseada em chunks de voxels.
-
-🛠️ Tecnologias Utilizadas
-
-Linguagem Principal: C++ / Rust / Python (ajuste conforme seu projeto)
-
-Gráficos / Renderização: OpenGL / Vulkan / Raylib
-
-Áudio: OpenAL
-
-Geração de Terreno: FastNoise / Simplex Noise
+## Informações do criador
+O criador ele gosta de código aberto e também ele vive numa cidade no sul do Brasil do espírito santo ele quer gratuidade para todos e mundo livre para todos e código aberto
