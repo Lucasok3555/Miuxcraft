@@ -2061,14 +2061,18 @@ el.canvas.addEventListener('click', () => {
   if (running && !document.pointerLockElement) el.canvas.requestPointerLock();
 });
 el.canvas.addEventListener('contextmenu', (event) => event.preventDefault());
+let lastTouchTime = 0;
+
 el.canvas.addEventListener('mousedown', (event) => {
   if (!running) return;
-  if (event.button === 0) interact(false);
-  if (event.button === 2) interact(true);
+  if (Date.now() - lastTouchTime < 500) return;
+  if (event.button === 0) interact(true);
+  if (event.button === 2) interact(false);
 });
 
 window.addEventListener('touchstart', (event) => {
   if (!el.game.classList.contains('active')) return;
+  lastTouchTime = Date.now();
   for (const touch of event.changedTouches) {
     if (touch.clientX < window.innerWidth * 0.42 && controls.moveTouch === null) {
       controls.moveTouch = touch.identifier;
